@@ -12,6 +12,10 @@
     .paths = .{
         "build.zig",
         "build.zig.zon",
-        "src",
+        "src/root.zig",
+        "src/readDATA_bin.py",
+        "src/readDATA_txt.py",
+        "README.md",
+        "LICENSE",
     },
 }
