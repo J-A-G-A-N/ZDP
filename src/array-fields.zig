@@ -1,5 +1,6 @@
 const std = @import("std");
 const DataWriter = @import("root.zig").DataWriter;
+const ensureDir = @import("ensuredir.zig").ensureDir;
 fn AFS(comptime N: usize) type {
     return struct {
         x_data: [N]f64,
@@ -30,5 +31,6 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
     const dw = DataWriter(arrayfieldstruct);
     const afs_dw = dw.init(&afs, allocator);
+    try ensureDir("out");
     try afs_dw.write(out_dir ++ "AFS", .binary);
 }

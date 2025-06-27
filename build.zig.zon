@@ -1,9 +1,9 @@
 .{
-    .name = .write_data,
+    .name = .zdp,
 
     .version = "0.0.0",
 
-    .fingerprint = 0x9004b8e06a9479de,
+    .fingerprint = 0xf7b3eb0b77876f7f,
 
     .minimum_zig_version = "0.14.0",
 

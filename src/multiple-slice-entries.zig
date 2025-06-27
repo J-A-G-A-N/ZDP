@@ -1,5 +1,6 @@
 const std = @import("std");
 const DataWriter = @import("root.zig").DataWriter;
+const ensureDir = @import("ensuredir.zig").ensureDir;
 const MSE = struct {
     x: []f64,
     y: []f64,
@@ -74,5 +75,6 @@ fn test_MSE(allocator: std.mem.Allocator) !void {
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
+    try ensureDir("out");
     try test_MSE(allocator);
 }
