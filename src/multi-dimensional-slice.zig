@@ -1,9 +1,7 @@
 const std = @import("std");
-const Header = struct {};
-const lib = @import("write_data_lib");
-const DataWriter = lib.DataWriter;
+const DataWriter = @import("root.zig").DataWriter;
 
-pub const TestDataf64MD_5 = struct {
+pub const TestMD = struct {
     x_data: [][][][][]f64,
     allocator: std.mem.Allocator,
 
@@ -90,42 +88,6 @@ pub const TestDataf64MD = struct {
         self.allocator.free(self.x);
     }
 };
-
-const Vec3f64 = @Vector(3, f64);
-const TestDataVec3f64 = struct {
-    x: []Vec3f64,
-    time: []f64,
-    allocator: std.mem.Allocator,
-    pub fn init(allocator: std.mem.Allocator, size: usize) !@This() {
-        const res = @This(){
-            .x = try allocator.alloc(Vec3f64, size),
-            .time = try allocator.alloc(f64, size),
-            .allocator = allocator,
-        };
-        return res;
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.allocator.free(self.x);
-        self.allocator.free(self.time);
-    }
-    pub fn generateHelicalPath(self: *@This(), t_max: f64) void {
-        const n = self.x.len;
-        const dt = t_max / @as(f64, @floatFromInt(n - 1));
-        var t: f64 = 0.0;
-
-        var i: usize = 0;
-        while (i < n) : (i += 1) {
-            self.time[i] = t;
-            self.x[i] = .{
-                @cos(t),
-                @sin(t),
-                t,
-            };
-            t += dt;
-        }
-    }
-};
 fn linspace(x: []f64, min: f64, max: f64) void {
     const dx: f64 = (max - min) / (@as(f64, @floatFromInt(x.len)) - 1.0);
     for (x, 0..) |*cx, i| {
@@ -135,20 +97,12 @@ fn linspace(x: []f64, min: f64, max: f64) void {
 
 const dir = "out/";
 fn test_TestDataf64MD_5(allocator: std.mem.Allocator) !void {
-    const dw = DataWriter(TestDataf64MD_5);
-    var test_5dim = try TestDataf64MD_5.init(allocator, 5, 4, 3, 2, 1);
+    const dw = DataWriter(TestMD);
+    var test_5dim = try TestMD.init(allocator, 5, 4, 3, 2, 1);
     defer test_5dim.deinit();
-    var d_writer = dw{ .data = &test_5dim, .allocator = allocator };
-    const text_file = try std.fs.cwd().createFile(dir ++ "TestDataf64MD_5.txt", .{});
-    defer text_file.close();
-    const text_file_writer = text_file.writer();
-    try d_writer.writeAllFieldsAsText(text_file_writer);
 
-    const bin_file = try std.fs.cwd().createFile(dir ++ "TestDataf64MD_5.bin", .{});
-    defer bin_file.close();
-    const bin_file_writer = bin_file.writer();
-
-    try d_writer.writeAllFieldsAsBytes(bin_file_writer);
+    const test_5dim_writer = dw.init(&test_5dim, allocator);
+    try test_5dim_writer.write(dir ++ "TMD", .binary);
 }
 
 pub fn main() !void {

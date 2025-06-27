@@ -27,10 +27,8 @@ pub fn main() !void {
     sin(N, &afs.x_data, &afs.y_data);
 
     const out_dir = "out/";
-    const file = try std.fs.cwd().createFile(out_dir ++ "AFS.bin", .{});
-    defer file.close();
-
+    const allocator = std.heap.page_allocator;
     const dw = DataWriter(arrayfieldstruct);
-    const afs_dw = dw{ .data = &afs, .allocator = std.heap.page_allocator };
-    try afs_dw.writeAllFieldsAsBytes(file.writer());
+    const afs_dw = dw.init(&afs, allocator);
+    try afs_dw.write(out_dir ++ "AFS", .binary);
 }

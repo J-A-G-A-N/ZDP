@@ -58,24 +58,18 @@ fn linspace(x: []f64, min: f64, max: f64) void {
 }
 const dir = "out/";
 fn test_MSE(allocator: std.mem.Allocator) !void {
+
+    // DataWriter returns a struct that is specific to the struct passed as arg
     const dw = DataWriter(MSE);
+
+    // create test data
     const size = 40_000;
     var _test = try MSE.init(allocator, size);
     defer _test.deinit();
     _test.fillLorenz(0.001);
-    var d_writer = dw{ .data = &_test, .allocator = allocator };
-    const text_file = try std.fs.cwd().createFile(dir ++ "MSE.txt", .{});
-    defer text_file.close();
-    const text_file_writer = text_file.writer();
-    try d_writer.writeAllFieldsAsText(text_file_writer);
 
-    const bin_file = try std.fs.cwd().createFile(dir ++ "MSE.bin", .{});
-    defer bin_file.close();
-    const bin_file_writer = bin_file.writer();
-    const start = std.time.microTimestamp();
-    try d_writer.writeAllFieldsAsBytes(bin_file_writer);
-    const end = std.time.microTimestamp();
-    std.debug.print("{} us\n", .{end - start});
+    var _test_writer = dw.init(&_test, allocator);
+    try _test_writer.write(dir ++ "MSE", .text);
 }
 
 pub fn main() !void {

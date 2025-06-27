@@ -17,6 +17,10 @@ const HEADER = "DATA.*01";
 //   [element_size: usize]        // Size in bytes of base type, e.g., 8 for f64, 4 for i32
 //   [actual values in flat array]
 const std = @import("std");
+const FileFormat = enum {
+    text,
+    binary,
+};
 pub fn DataWriter(comptime T: type) type {
     const info = @typeInfo(T);
     if (info != .@"struct") @compileError("DataWriter Expects a Struct");
@@ -25,10 +29,10 @@ pub fn DataWriter(comptime T: type) type {
         data: *const T,
         allocator: std.mem.Allocator,
         const fields: []const std.builtin.Type.StructField = std.meta.fields(T);
-        pub fn init(_struct: *T) @This() {
+        pub fn init(_struct: *T, allocator: std.mem.Allocator) @This() {
             return @This(){
                 .data = _struct,
-                .allocator = undefined,
+                .allocator = allocator,
             };
         }
         pub fn debugPrintFields(self: *const @This()) void {
@@ -37,7 +41,7 @@ pub fn DataWriter(comptime T: type) type {
                 std.debug.print("{any}\n", .{field});
             }
         }
-        pub fn writeAllFieldsAsText(self: @This(), writer: anytype) !void {
+        fn writeAllFieldsAsText(self: @This(), writer: anytype) !void {
             comptime var count: usize = 0;
             inline for (fields) |s_field| {
                 if (s_field.type == std.mem.Allocator) continue;
@@ -83,7 +87,20 @@ pub fn DataWriter(comptime T: type) type {
                 }
             }
         }
-        pub fn writeAllFieldsAsBytes(self: @This(), writer: anytype) !void {
+        pub fn write(self: @This(), comptime file_path: []const u8, comptime file_format: FileFormat) !void {
+            const ext = switch (file_format) {
+                .text => ".txt",
+                .binary => ".bin",
+            };
+            const file = try std.fs.cwd().createFile(file_path ++ ext, .{});
+            defer file.close();
+            const writer = file.writer();
+            switch (file_format) {
+                .text => try self.writeAllFieldsAsText(writer),
+                .binary => try self.writeAllFieldsAsBytes(writer),
+            }
+        }
+        fn writeAllFieldsAsBytes(self: @This(), writer: anytype) !void {
             if (info != .@"struct") return error.NotAStruct;
             comptime var count: usize = 0;
             inline for (fields) |s_field| {
