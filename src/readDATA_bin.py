@@ -1,7 +1,7 @@
 import struct
 import math
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Union
 import numpy as np
 from tqdm import tqdm
 
@@ -15,16 +15,32 @@ class DataField:
     values: np.ndarray
 
 
+def get_field_by_name(
+    fields: List[DataField], key: Union[int, str]
+) -> Optional[DataField]:
+    if isinstance(key, int):
+        if 0 <= key or key <= len(fields):
+            return fields[key]
+    elif isinstance(key, str):
+        for field in fields:
+            if field.name == key:
+                return field
+        return None
+    else:
+        raise TypeError(
+            "Key must be either a string (field name) or an integer (field index)"
+        )
+
+
 def loadData(file_name: str) -> List[DataField]:
     if not file_name.endswith(".bin"):
         print("Invalid File, Pass File with extension '.bin'")
 
     with open(file_name, "rb") as file:
-        expected_header_bytes = b"DATA.*"
-        expected_header = "DATA.*"
-        header = file.read(6)
+        expected_header_bytes = b"DATA.*01"
+        header = file.read(8)
         assert header == expected_header_bytes, (
-            f"Invalid header: got {header}, expected {expected_header}"
+            f"Invalid header: got {header.decode('utf-8')}, expected {expected_header_bytes.decode('utf-8')}"
         )
 
         field_count_bytes = file.read(8)
@@ -38,15 +54,12 @@ def loadData(file_name: str) -> List[DataField]:
             field_name = struct.unpack(f"{field_name_length}s", field_name_bytes)[
                 0
             ].decode()
-            field_dim_bytes = file.read(8)
-            field_dim = struct.unpack("<Q", field_dim_bytes)[0]
-            field_dim = struct.unpack("<Q", field_dim_bytes)[0]
+            field_dim = struct.unpack("<Q", file.read(8))[0]
             field_shape_len = struct.unpack("<Q", file.read(8))[0]
             field_shape_list = list(
                 struct.unpack(f"{field_shape_len}Q", file.read(8 * field_shape_len))
             )
-            element_size_bytes = file.read(8)
-            element_size = struct.unpack("<Q", element_size_bytes)[0]
+            element_size = struct.unpack("<Q", file.read(8))[0]
 
             field_len = math.prod(field_shape_list)
 
@@ -64,5 +77,4 @@ def loadData(file_name: str) -> List[DataField]:
                 values=field_values_reshaped,
             )
             fields.append(field)
-        print()
     return fields

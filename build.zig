@@ -22,14 +22,6 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    exe_mod.addImport("write_data_lib", lib_mod);
-
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "write_data",
@@ -37,43 +29,25 @@ pub fn build(b: *std.Build) !void {
         .use_llvm = false,
     });
 
-    b.installArtifact(lib);
-
-    const exe = b.addExecutable(.{
-        .name = "executable",
-        .root_module = exe_mod,
-        .use_llvm = false,
-    });
-
-    b.installArtifact(exe);
-
-    const run_cmd = b.addRunArtifact(exe);
-
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+    const llvm = b.option(bool, "llvm", "Use llvm to build") orelse false;
+    if (llvm) {
+        lib.use_llvm = true;
     }
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    b.installArtifact(lib);
+
     const clean_step = b.step("clean", "clean out dir and zig-out");
     clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
-    clean_step.dependOn(&b.addRemoveDirTree(b.path(".zig-cache")).step);
     clean_step.dependOn(&b.addRemoveDirTree(b.path("out")).step);
+    clean_step.dependOn(&b.addRemoveDirTree(b.path("src/__pycache__/")).step);
+    const clean_zig_cache = b.step("clean-cache", "clean 'out' dir ");
+    clean_zig_cache.dependOn(&b.addRemoveDirTree(b.path(".zig-cache")).step);
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod,
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
-    const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
-    });
-
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
 }
