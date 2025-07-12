@@ -45,6 +45,7 @@ pub fn DataWriter(comptime T: type) type {
         data: *const T,
         metas: std.ArrayList(FieldMeta),
         allocator: std.mem.Allocator,
+        parse_done: bool = false,
         const Self = @This();
         const fields: []const std.builtin.Type.StructField = std.meta.fields(T);
         pub fn init(_struct: *T, allocator: std.mem.Allocator) @This() {
@@ -52,9 +53,10 @@ pub fn DataWriter(comptime T: type) type {
                 .data = _struct,
                 .metas = std.ArrayList(FieldMeta).init(allocator),
                 .allocator = allocator,
+                .parse_done = false,
             };
         }
-        pub fn deinit(self: *Self) @This() {
+        pub fn deinit(self: *Self) void {
             for (self.metas.items) |meta| {
                 self.allocator.free(meta.shape);
                 self.allocator.free(meta.flat_res);
@@ -126,11 +128,13 @@ pub fn DataWriter(comptime T: type) type {
             defer file.close();
             var bw = std.io.bufferedWriter(file.writer());
             const writer = bw.writer();
-
-            self.metas = std.ArrayList(FieldMeta).init(self.allocator);
-            inline for (fields) |field| {
-                if (field.type == std.mem.Allocator) continue;
-                if (try self.collectMeta(field)) |meta| try self.metas.append(meta);
+            if (!self.parse_done) {
+                self.metas = std.ArrayList(FieldMeta).init(self.allocator);
+                inline for (fields) |field| {
+                    if (field.type == std.mem.Allocator) continue;
+                    if (try self.collectMeta(field)) |meta| try self.metas.append(meta);
+                }
+                self.parse_done = true;
             }
 
             switch (file_format) {
@@ -141,8 +145,8 @@ pub fn DataWriter(comptime T: type) type {
         }
         fn writeAllFieldAsBytes(self: *Self, writer: anytype) !void {
             const metas = self.metas.items;
-            try writer.writeAll(HEADER); // 8-byte header
-            try writer.writeInt(usize, metas.len, .little); // 8-byte little endian binary field count
+            try writer.writeAll(HEADER);
+            try writer.writeInt(usize, metas.len, .little);
             for (metas) |meta| {
                 try writer.writeInt(usize, @intFromEnum(meta.field_type_marker), .little);
                 try writer.writeInt(usize, meta.name.len, .little);

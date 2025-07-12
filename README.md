@@ -1,7 +1,7 @@
 
 # ZDP 📦
 
-ZDP is a lightweight Zig library to serialize structured scientific data (slices/arrays) into `.txt` or `.bin` files, designed to be easily read from Python using `readDATA_bin.py`. Perfect for simulations, numerical models, and exporting multi-dimensional arrays.
+ZDP(Zig Data Protocol) is a lightweight Zig library to serialize structured scientific data (slices/arrays) into `.txt` or `.bin` files, designed to be easily read from Python using `readDATA_bin.py`. Perfect for simulations, numerical models, and exporting multi-dimensional arrays.
 
 ---
 
@@ -32,15 +32,16 @@ zig build-exe src/multiple-slice-entries.zig
 
 ```
 DATA.*01
+field count
 ```
 
 ### For Each Field
 
 ```
+[field type marker:usize]
 [field_name_len: usize]
 [field_name: []u8]
 [dim: usize]
-[shape_len: usize]
 [shape: [shape_len]usize]
 [element_size: usize]
 [values: flat data]
