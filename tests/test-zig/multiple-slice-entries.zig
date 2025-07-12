@@ -71,9 +71,17 @@ fn test_MSE(allocator: std.mem.Allocator) !void {
     defer _test.deinit();
     _test.fillLorenz(0.001);
 
-    var _test_writer = dw.init(&_test, allocator);
-    try _test_writer.write(dir ++ "MSE", .binary);
-    try _test_writer.write(dir ++ "MSE", .text);
+    {
+        var writer = dw.init(&_test, allocator);
+        var start = std.time.microTimestamp();
+        try writer.write(dir ++ "MSE", .binary);
+        var end = std.time.microTimestamp();
+        std.debug.print("Time Took for binary :{} us\n", .{end - start});
+        start = std.time.microTimestamp();
+        try writer.write(dir ++ "MSE", .text);
+        end = std.time.microTimestamp();
+        std.debug.print("Time Took for text :{} us\n", .{end - start});
+    }
 }
 
 pub fn main() !void {

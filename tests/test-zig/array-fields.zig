@@ -32,7 +32,7 @@ pub fn main() !void {
     const out_dir = "out/";
     const allocator = std.heap.page_allocator;
     const dw = DataWriter(arrayfieldstruct);
-    const afs_dw = dw.init(&afs, allocator);
+    var afs_dw = dw.init(&afs, allocator);
     try ensureDir("out");
     try afs_dw.write(out_dir ++ "AFS", .binary);
 }

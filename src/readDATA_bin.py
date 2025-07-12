@@ -4,6 +4,23 @@ from dataclasses import dataclass
 from typing import List, Optional, Union
 import numpy as np
 from tqdm import tqdm
+from enum import IntEnum
+
+
+class FieldTypeMarker(IntEnum):
+    _struct = 1
+    slice = 2
+    array = 3
+
+
+def printFieldType(val: int):
+    match val:
+        case FieldTypeMarker._struct:
+            print("struct")
+        case FieldTypeMarker.slice:
+            print("slice")
+        case FieldTypeMarker.array:
+            print("array")
 
 
 @dataclass
@@ -48,6 +65,9 @@ def loadData(file_name: str) -> List[DataField]:
         fields = []
 
         for _ in tqdm(range(field_count), desc="Loading Fields", unit="field"):
+            field_type_mark_bytes = file.read(8)
+            field_type_mark = struct.unpack("<Q", field_type_mark_bytes)[0]
+            printFieldType(field_type_mark)
             field_name_length_bytes = file.read(8)
             field_name_length = struct.unpack("<Q", field_name_length_bytes)[0]
             field_name_bytes = file.read(field_name_length)
@@ -55,9 +75,8 @@ def loadData(file_name: str) -> List[DataField]:
                 0
             ].decode()
             field_dim = struct.unpack("<Q", file.read(8))[0]
-            field_shape_len = struct.unpack("<Q", file.read(8))[0]
             field_shape_list = list(
-                struct.unpack(f"{field_shape_len}Q", file.read(8 * field_shape_len))
+                struct.unpack(f"{field_dim}Q", file.read(8 * field_dim))
             )
             element_size = struct.unpack("<Q", file.read(8))[0]
 

@@ -9,12 +9,11 @@ const HEADER = "DATA.*01";
 // [field_count: usize]
 //
 // For each field:
-//   [field_type_mark:u8]
+//   [field_type_mark:usize]
 //   [field_name_len: usize]
 //   [field_name: []u8]
 //   [dim: usize]                  // For a slice
-//   [shape_len: usize]           // Length of the shape array (should equal `dim`)
-//   [shape: [shape_len]usize]    // Each entry is length in that dimension
+//   [shape: [dim]usize]    // Each entry is length in that dimension
 //   [element_size: usize]        // Size in bytes of base type, e.g., 8 for f64, 4 for i32
 //   [actual values in flat array]
 const std = @import("std");
@@ -27,6 +26,16 @@ const FieldTypeMarker = enum(u8) {
     _struct = 0x01,
     slice = 0x02,
     array = 0x03,
+    unknown = 0x04,
+};
+const FieldMeta = struct {
+    name: []const u8,
+    field_type_marker: FieldTypeMarker,
+    depth: usize,
+    shape: []usize,
+    total_elemnts: usize,
+    base_type_size: u8,
+    flat_res: []const u8,
 };
 pub fn DataWriter(comptime T: type) type {
     const info = @typeInfo(T);
@@ -34,13 +43,23 @@ pub fn DataWriter(comptime T: type) type {
 
     return struct {
         data: *const T,
+        metas: std.ArrayList(FieldMeta),
         allocator: std.mem.Allocator,
+        const Self = @This();
         const fields: []const std.builtin.Type.StructField = std.meta.fields(T);
         pub fn init(_struct: *T, allocator: std.mem.Allocator) @This() {
             return @This(){
                 .data = _struct,
+                .metas = std.ArrayList(FieldMeta).init(allocator),
                 .allocator = allocator,
             };
+        }
+        pub fn deinit(self: *Self) @This() {
+            for (self.metas.items) |meta| {
+                self.allocator.free(meta.shape);
+                self.allocator.free(meta.flat_res);
+            }
+            self.metas.deinit();
         }
         pub fn debugPrintFields(self: *const @This()) void {
             _ = self;
@@ -48,145 +67,127 @@ pub fn DataWriter(comptime T: type) type {
                 std.debug.print("{any}\n", .{field});
             }
         }
-        fn writeAllFieldsAsText(self: @This(), writer: anytype) !void {
-            comptime var count: usize = 0;
-            inline for (fields) |s_field| {
-                if (s_field.type == std.mem.Allocator) continue;
-                const field_type_info = @typeInfo(s_field.type);
-                switch (field_type_info) {
-                    .int => continue,
-                    .float => continue,
-                    else => {},
-                }
-                count += 1;
-            }
-
-            try writer.print(HEADER ++ "\n", .{});
-            try writer.print("{}\n", .{count});
-            inline for (fields) |s_field| {
-                if (s_field.type == std.mem.Allocator) continue;
-                const field_type_info = @typeInfo(s_field.type);
-                switch (field_type_info) {
-                    .int => continue,
-                    .float => continue,
-                    else => {},
-                }
-
-                switch (field_type_info) {
-                    .pointer => |ptr| {
-                        if (ptr.size == .slice) {
-                            try writer.print("{}\n", .{@intFromEnum(FieldTypeMarker.slice)});
-                        }
-                    },
-                    .array => {
-                        try writer.print("{}\n", .{@intFromEnum(FieldTypeMarker.array)});
-                    },
-                    else => {},
-                }
-                const field_name = s_field.name;
-                const field_value = @field(self.data.*, field_name);
-                try writer.print("{}\n", .{field_name.len});
-                try writer.print("{s}\n", .{field_name});
-
-                const slice_depth = getDepth(s_field.type);
-                try writer.print("{}\n", .{slice_depth});
-                const slice_shape = try self.getSliceShape(field_value, slice_depth);
-                defer self.allocator.free(slice_shape);
-                try writer.print("{}\n", .{slice_shape.len});
-                var total_elements: usize = 1;
-                for (slice_shape) |s| {
-                    total_elements *= s;
-                    try writer.print("{}\n", .{s});
-                }
-                const base_type = resolveBaseType(s_field.type);
-                const base_type_size = @sizeOf(base_type);
-                try writer.print("{}\n", .{base_type_size});
-                const flat_res = try get_flat_optimized(
-                    self.allocator,
-                    field_value,
-                    base_type,
-                    total_elements,
-                );
-                defer self.allocator.free(flat_res);
-                for (flat_res) |val| {
-                    try writer.print("{}\n", .{val});
-                }
-            }
+        fn getFieldTypeMarker(field_type_info: std.builtin.Type) FieldTypeMarker {
+            return switch (field_type_info) {
+                .@"struct" => return FieldTypeMarker._struct,
+                .pointer => |ptr| {
+                    if (ptr.size == .slice) {
+                        return FieldTypeMarker.slice;
+                    }
+                },
+                .array => return FieldTypeMarker.array,
+                else => {},
+            };
         }
-        pub fn write(self: @This(), comptime file_path: []const u8, comptime file_format: FileFormat) !void {
+        fn collectMeta(self: *Self, field: std.builtin.Type.StructField) !?FieldMeta {
+            if (field.type == std.mem.Allocator) return null;
+
+            const field_type_info = @typeInfo(field.type);
+            switch (field_type_info) {
+                .int => return null,
+                .float => return null,
+                else => {},
+            }
+
+            const name = field.name;
+            const value = @field(self.data.*, name);
+            const depth = getDepth(field.type);
+            const shape = try self.getSliceShape(value, depth);
+            const field_type_marker = getFieldTypeMarker(field_type_info);
+            var total_elemnts: usize = 1;
+
+            const base_type = resolveBaseType(field.type);
+            for (shape) |s| {
+                total_elemnts *= s;
+            }
+            const flat_res = try get_flat_optimized(
+                self.allocator,
+                value,
+                base_type,
+                total_elemnts,
+            );
+
+            return FieldMeta{
+                .field_type_marker = field_type_marker,
+                .name = name,
+                .depth = depth,
+                .shape = shape,
+                .total_elemnts = total_elemnts,
+                .base_type_size = @sizeOf(base_type),
+                .flat_res = std.mem.sliceAsBytes(flat_res),
+            };
+        }
+        pub fn write(self: *@This(), comptime file_path: []const u8, comptime file_format: FileFormat) !void {
             const ext = switch (file_format) {
                 .text => ".txt",
                 .binary => ".bin",
             };
             const file = try std.fs.cwd().createFile(file_path ++ ext, .{});
             defer file.close();
-            const writer = file.writer();
+            var bw = std.io.bufferedWriter(file.writer());
+            const writer = bw.writer();
+
+            self.metas = std.ArrayList(FieldMeta).init(self.allocator);
+            inline for (fields) |field| {
+                if (field.type == std.mem.Allocator) continue;
+                if (try self.collectMeta(field)) |meta| try self.metas.append(meta);
+            }
+
             switch (file_format) {
-                .text => try self.writeAllFieldsAsText(writer),
-                .binary => try self.writeAllFieldsAsBytes(writer),
+                .text => try self.writeAllFieldAsText(writer),
+                .binary => try self.writeAllFieldAsBytes(writer),
+            }
+            try bw.flush();
+        }
+        fn writeAllFieldAsBytes(self: *Self, writer: anytype) !void {
+            const metas = self.metas.items;
+            try writer.writeAll(HEADER); // 8-byte header
+            try writer.writeInt(usize, metas.len, .little); // 8-byte little endian binary field count
+            for (metas) |meta| {
+                try writer.writeInt(usize, @intFromEnum(meta.field_type_marker), .little);
+                try writer.writeInt(usize, meta.name.len, .little);
+                try writer.writeAll(meta.name);
+                try writer.writeInt(usize, meta.depth, .little);
+                for (meta.shape) |s| try writer.writeInt(usize, s, .little);
+                try writer.writeInt(usize, meta.base_type_size, .little);
+
+                try writer.writeAll(meta.flat_res);
             }
         }
-        fn writeAllFieldsAsBytes(self: @This(), writer: anytype) !void {
-            if (info != .@"struct") return error.NotAStruct;
-            comptime var count: usize = 0;
-            inline for (fields) |s_field| {
-                if (s_field.type == std.mem.Allocator) continue;
-                const field_type_info = @typeInfo(s_field.type);
-                switch (field_type_info) {
-                    .int => continue,
-                    .float => continue,
-                    else => {},
+
+        fn writeAllFieldAsText(self: *Self, writer: anytype) !void {
+            const metas = self.metas.items;
+            try writer.print("{s}\n{d}\n", .{ HEADER, metas.len });
+            var meta_index: usize = 0;
+            inline for (fields) |field| {
+                if (field.type == std.mem.Allocator) continue;
+                const meta = metas[meta_index];
+                meta_index += 1;
+                try writer.print(
+                    "{d}\n{d}\n{s}\n{d}\n",
+                    .{
+                        @intFromEnum(meta.field_type_marker),
+                        meta.name.len,
+                        meta.name,
+                        meta.depth,
+                    },
+                );
+                for (meta.shape) |s| try writer.print("{d}\n", .{s});
+                try writer.print("{}\n", .{meta.base_type_size});
+                const base_type = resolveBaseType(@TypeOf(@field(self.data.*, field.name)));
+
+                const flat_res_typed = std.mem.bytesAsSlice(base_type, meta.flat_res);
+                for (flat_res_typed) |val| {
+                    try writer.print("{}\n", .{val});
                 }
-
-                count += 1;
             }
-            // Write Header
-            try writer.writeAll(HEADER);
-            // Write header length
-            try writer.writeInt(usize, count, .little);
-            // Write header length
-            inline for (info.@"struct".fields) |s_field| {
-                if (s_field.type == std.mem.Allocator) continue;
-                const field_type_info = @typeInfo(s_field.type);
-                switch (field_type_info) {
-                    .int => continue,
-                    .float => continue,
-                    else => {},
-                }
-                try self.writeSliceAsBytes(s_field, writer);
-            }
-        }
-        fn writeSliceAsBytes(self: @This(), field: anytype, writer: anytype) !void {
-            const name = field.name;
-            const Type = field.type;
-            const base_type = resolveBaseType(Type);
-            const base_type_size = @sizeOf(base_type);
-
-            const field_value = @field(self.data.*, name);
-            try writer.writeInt(usize, name.len, .little);
-            try writer.writeAll(name);
-            const slice_depth = getDepth(field.type);
-            try writer.writeInt(usize, slice_depth, .little);
-            const slice_shape = try self.getSliceShape(field_value, slice_depth);
-            defer self.allocator.free(slice_shape);
-            try writer.writeInt(usize, slice_shape.len, .little);
-            var total_elements: usize = 1;
-            for (slice_shape) |s| {
-                total_elements *= s;
-                try writer.writeInt(usize, s, .little);
-            }
-            try writer.writeInt(usize, base_type_size, .little);
-
-            const flat_res = try get_flat_optimized(self.allocator, field_value, base_type, total_elements);
-            defer self.allocator.free(flat_res);
-            try writer.writeAll(std.mem.sliceAsBytes(flat_res));
         }
         fn get_flat_optimized(
             allocator: std.mem.Allocator,
             value: anytype,
             base_type: type,
             return_len: usize,
-        ) ![]f64 {
+        ) ![]base_type {
             var flat = try allocator.alloc(base_type, return_len);
             var index: usize = 0;
             flatten_recursive_optimized(value, base_type, &flat, &index);
