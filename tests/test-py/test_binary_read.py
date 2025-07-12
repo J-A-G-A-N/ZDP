@@ -1,3 +1,6 @@
+import sys
+
+sys.path.append("../../src/")
 from readDATA_bin import loadData
 
 

@@ -1,5 +1,7 @@
 const std = @import("std");
-const DataWriter = @import("root.zig").DataWriter;
+const zdp = @import("zdp");
+const DataWriter = zdp.DataWriter;
+
 const ensureDir = @import("ensuredir.zig").ensureDir;
 const MSE = struct {
     x: []f64,
@@ -19,7 +21,7 @@ const MSE = struct {
         linspace(self.z, min, max);
         for (self.x, self.y, self.z) |*x, *y, *z| {
             x.* = @sin(z.*);
-            y.* = @cos(z.*);
+            y.* = @cos(z.* + 90);
         }
     }
     fn fillLorenz(self: *const @This(), dt: f64) void {
@@ -70,6 +72,7 @@ fn test_MSE(allocator: std.mem.Allocator) !void {
     _test.fillLorenz(0.001);
 
     var _test_writer = dw.init(&_test, allocator);
+    try _test_writer.write(dir ++ "MSE", .binary);
     try _test_writer.write(dir ++ "MSE", .text);
 }
 

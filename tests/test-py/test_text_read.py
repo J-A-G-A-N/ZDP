@@ -1,3 +1,7 @@
+import sys
+
+sys.path.append("../../src/")
+
 from readDATA_txt import DataField
 from readDATA_txt import loadData
 from readDATA_txt import parse

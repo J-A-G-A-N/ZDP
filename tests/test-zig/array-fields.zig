@@ -1,5 +1,7 @@
 const std = @import("std");
-const DataWriter = @import("root.zig").DataWriter;
+const zdp = @import("zdp");
+const DataWriter = zdp.DataWriter;
+
 const ensureDir = @import("ensuredir.zig").ensureDir;
 fn AFS(comptime N: usize) type {
     return struct {

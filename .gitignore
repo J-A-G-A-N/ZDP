@@ -1,0 +1,6 @@
+.zig-cache
+zig-out
+out/
+src/__pycache__/
+todo.md
+

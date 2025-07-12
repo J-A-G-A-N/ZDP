@@ -1,6 +1,7 @@
 const std = @import("std");
-const DataWriter = @import("root.zig").DataWriter;
 const ensureDir = @import("ensuredir.zig").ensureDir;
+const zdp = @import("zdp");
+const DataWriter = zdp.DataWriter;
 
 pub const TestMD = struct {
     x_data: [][][][][]f64,
@@ -99,7 +100,7 @@ fn linspace(x: []f64, min: f64, max: f64) void {
 const dir = "out/";
 fn test_TestDataf64MD_5(allocator: std.mem.Allocator) !void {
     const dw = DataWriter(TestMD);
-    var test_5dim = try TestMD.init(allocator, 5, 4, 3, 2, 1);
+    var test_5dim = try TestMD.init(allocator, 50, 24, 13, 12, 1);
     defer test_5dim.deinit();
 
     const test_5dim_writer = dw.init(&test_5dim, allocator);

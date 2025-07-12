@@ -9,6 +9,7 @@ const HEADER = "DATA.*01";
 // [field_count: usize]
 //
 // For each field:
+//   [field_type_mark:u8]
 //   [field_name_len: usize]
 //   [field_name: []u8]
 //   [dim: usize]                  // For a slice
@@ -20,6 +21,12 @@ const std = @import("std");
 const FileFormat = enum {
     text,
     binary,
+};
+
+const FieldTypeMarker = enum(u8) {
+    _struct = 0x01,
+    slice = 0x02,
+    array = 0x03,
 };
 pub fn DataWriter(comptime T: type) type {
     const info = @typeInfo(T);
@@ -65,22 +72,41 @@ pub fn DataWriter(comptime T: type) type {
                     else => {},
                 }
 
+                switch (field_type_info) {
+                    .pointer => |ptr| {
+                        if (ptr.size == .slice) {
+                            try writer.print("{}\n", .{@intFromEnum(FieldTypeMarker.slice)});
+                        }
+                    },
+                    .array => {
+                        try writer.print("{}\n", .{@intFromEnum(FieldTypeMarker.array)});
+                    },
+                    else => {},
+                }
                 const field_name = s_field.name;
                 const field_value = @field(self.data.*, field_name);
                 try writer.print("{}\n", .{field_name.len});
                 try writer.print("{s}\n", .{field_name});
+
                 const slice_depth = getDepth(s_field.type);
                 try writer.print("{}\n", .{slice_depth});
                 const slice_shape = try self.getSliceShape(field_value, slice_depth);
                 defer self.allocator.free(slice_shape);
                 try writer.print("{}\n", .{slice_shape.len});
+                var total_elements: usize = 1;
                 for (slice_shape) |s| {
+                    total_elements *= s;
                     try writer.print("{}\n", .{s});
                 }
                 const base_type = resolveBaseType(s_field.type);
                 const base_type_size = @sizeOf(base_type);
                 try writer.print("{}\n", .{base_type_size});
-                const flat_res = try get_flat(self.allocator, field_value, base_type);
+                const flat_res = try get_flat_optimized(
+                    self.allocator,
+                    field_value,
+                    base_type,
+                    total_elements,
+                );
                 defer self.allocator.free(flat_res);
                 for (flat_res) |val| {
                     try writer.print("{}\n", .{val});
@@ -144,36 +170,42 @@ pub fn DataWriter(comptime T: type) type {
             const slice_shape = try self.getSliceShape(field_value, slice_depth);
             defer self.allocator.free(slice_shape);
             try writer.writeInt(usize, slice_shape.len, .little);
+            var total_elements: usize = 1;
             for (slice_shape) |s| {
+                total_elements *= s;
                 try writer.writeInt(usize, s, .little);
             }
             try writer.writeInt(usize, base_type_size, .little);
-            const flat_res = try get_flat(self.allocator, field_value, base_type);
+
+            const flat_res = try get_flat_optimized(self.allocator, field_value, base_type, total_elements);
             defer self.allocator.free(flat_res);
             try writer.writeAll(std.mem.sliceAsBytes(flat_res));
         }
-
-        fn get_flat(allocator: std.mem.Allocator, value: anytype, base_type: type) ![]f64 {
-            var flat = std.ArrayList(f64).init(allocator);
-            errdefer flat.deinit();
-
-            try flatten_recursive(value, base_type, &flat);
-
-            return flat.toOwnedSlice();
+        fn get_flat_optimized(
+            allocator: std.mem.Allocator,
+            value: anytype,
+            base_type: type,
+            return_len: usize,
+        ) ![]f64 {
+            var flat = try allocator.alloc(base_type, return_len);
+            var index: usize = 0;
+            flatten_recursive_optimized(value, base_type, &flat, &index);
+            return flat;
         }
 
-        fn flatten_recursive(value: anytype, base_type: type, flat: *std.ArrayList(base_type)) !void {
+        fn flatten_recursive_optimized(value: anytype, base_type: type, flat: *[]f64, index: *usize) void {
             const Type = @TypeOf(value);
             const _info = @typeInfo(Type);
-
+            const max_len = flat.*.len;
             switch (_info) {
                 .pointer => |ptr_info| {
                     if (ptr_info.size == .slice) {
                         for (value) |item| {
-                            try flatten_recursive(
+                            flatten_recursive_optimized(
                                 item,
                                 base_type,
                                 flat,
+                                index,
                             );
                         }
                         return;
@@ -181,19 +213,24 @@ pub fn DataWriter(comptime T: type) type {
                 },
                 .array => {
                     for (value) |item| {
-                        try flatten_recursive(
+                        flatten_recursive_optimized(
                             item,
                             base_type,
                             flat,
+                            index,
                         );
                     }
                     return;
                 },
                 else => {
-                    try flat.append(value);
+                    if (index.* < max_len) {
+                        flat.*[index.*] = value;
+                        index.* += 1;
+                    }
                 },
             }
         }
+
         fn resolveBaseType(comptime Type: type) type {
             var current_type = Type;
             inline while (true) {
