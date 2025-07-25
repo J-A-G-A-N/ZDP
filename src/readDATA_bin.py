@@ -67,7 +67,6 @@ def loadData(file_name: str) -> List[DataField]:
         for _ in tqdm(range(field_count), desc="Loading Fields", unit="field"):
             field_type_mark_bytes = file.read(8)
             field_type_mark = struct.unpack("<Q", field_type_mark_bytes)[0]
-            printFieldType(field_type_mark)
             field_name_length_bytes = file.read(8)
             field_name_length = struct.unpack("<Q", field_name_length_bytes)[0]
             field_name_bytes = file.read(field_name_length)

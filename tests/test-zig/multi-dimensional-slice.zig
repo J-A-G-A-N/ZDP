@@ -104,7 +104,7 @@ fn test_TestDataf64MD_5(allocator: std.mem.Allocator) !void {
     defer test_5dim.deinit();
 
     var test_5dim_writer = dw.init(&test_5dim, allocator);
-    try test_5dim_writer.write(dir ++ "TMD", .binary);
+    try test_5dim_writer.write(dir ++ "TMD", .text);
 }
 
 pub fn main() !void {

@@ -37,6 +37,7 @@ const FieldMeta = struct {
     base_type_size: u8,
     flat_res: []const u8,
 };
+
 pub fn DataWriter(comptime T: type) type {
     const info = @typeInfo(T);
     if (info != .@"struct") @compileError("DataWriter Expects a Struct");
@@ -94,7 +95,7 @@ pub fn DataWriter(comptime T: type) type {
             const name = field.name;
             const value = @field(self.data.*, name);
             const depth = getDepth(field.type);
-            const shape = try self.getSliceShape(value, depth);
+            const shape = try getSliceShape(self.allocator, value, depth);
             const field_type_marker = getFieldTypeMarker(field_type_info);
             var total_elemnts: usize = 1;
 
@@ -186,116 +187,6 @@ pub fn DataWriter(comptime T: type) type {
                 }
             }
         }
-        fn get_flat_optimized(
-            allocator: std.mem.Allocator,
-            value: anytype,
-            base_type: type,
-            return_len: usize,
-        ) ![]base_type {
-            var flat = try allocator.alloc(base_type, return_len);
-            var index: usize = 0;
-            flatten_recursive_optimized(value, base_type, &flat, &index);
-            return flat;
-        }
-
-        fn flatten_recursive_optimized(value: anytype, base_type: type, flat: *[]f64, index: *usize) void {
-            const Type = @TypeOf(value);
-            const _info = @typeInfo(Type);
-            const max_len = flat.*.len;
-            switch (_info) {
-                .pointer => |ptr_info| {
-                    if (ptr_info.size == .slice) {
-                        for (value) |item| {
-                            flatten_recursive_optimized(
-                                item,
-                                base_type,
-                                flat,
-                                index,
-                            );
-                        }
-                        return;
-                    }
-                },
-                .array => {
-                    for (value) |item| {
-                        flatten_recursive_optimized(
-                            item,
-                            base_type,
-                            flat,
-                            index,
-                        );
-                    }
-                    return;
-                },
-                else => {
-                    if (index.* < max_len) {
-                        flat.*[index.*] = value;
-                        index.* += 1;
-                    }
-                },
-            }
-        }
-
-        fn resolveBaseType(comptime Type: type) type {
-            var current_type = Type;
-            inline while (true) {
-                const tag = @typeInfo(current_type);
-                switch (tag) {
-                    .pointer => current_type = tag.pointer.child,
-                    .array => current_type = tag.array.child,
-                    .vector => current_type = tag.vector.child,
-                    // .optional => t = tag.optional.child, // (future use)
-                    else => break,
-                }
-            }
-            return current_type;
-        }
-
-        fn getSliceShape(self: @This(), value: anytype, depth: usize) ![]usize {
-            var shape = try self.allocator.alloc(usize, depth);
-
-            var current = value;
-            var i: usize = 0;
-            while (i < depth) : (i += 1) {
-                shape[i] = current.len;
-
-                if (current.len == 0) {
-                    for (shape[i + 1 ..]) |*s| s.* = 0;
-                    break;
-                }
-
-                const Elem = @TypeOf(current[0]);
-                if (@typeInfo(Elem) != .pointer or @typeInfo(Elem).pointer.size != .slice) {
-                    break; // reached the base scalar (e.g., f64)
-                }
-
-                current = current[0];
-            }
-
-            return shape;
-        }
-        fn getDepth(comptime Type: type) usize {
-            comptime var current_type = Type;
-            comptime var depth: usize = 0;
-
-            inline while (true) {
-                const _info = @typeInfo(current_type);
-                switch (_info) {
-                    .array => |arr| {
-                        depth += 1;
-                        current_type = arr.child;
-                    },
-                    .pointer => |ptr| if (ptr.size == .slice) {
-                        depth += 1;
-                        current_type = ptr.child;
-                    } else {
-                        current_type = ptr.child;
-                    },
-                    else => break,
-                }
-            }
-            return depth;
-        }
 
         pub fn flattenVectorSliceType(comptime VecSliceType: type) type {
             const VecType = std.meta.Child(VecSliceType); // @Vector(n, T)
@@ -312,6 +203,141 @@ pub fn DataWriter(comptime T: type) type {
         }
     };
 }
+fn get_flat_optimized(
+    allocator: std.mem.Allocator,
+    value: anytype,
+    base_type: type,
+    return_len: usize,
+) ![]base_type {
+    var flat = try allocator.alloc(base_type, return_len);
+    var index: usize = 0;
+    flatten_recursive_optimized(value, base_type, &flat, &index);
+    return flat;
+}
+fn flatten_recursive_optimized(value: anytype, base_type: type, flat: *[]f64, index: *usize) void {
+    const Type = @TypeOf(value);
+    const _info = @typeInfo(Type);
+    const max_len = flat.*.len;
+    switch (_info) {
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .slice) {
+                for (value) |item| {
+                    flatten_recursive_optimized(
+                        item,
+                        base_type,
+                        flat,
+                        index,
+                    );
+                }
+                return;
+            }
+        },
+        .array => {
+            for (value) |item| {
+                flatten_recursive_optimized(
+                    item,
+                    base_type,
+                    flat,
+                    index,
+                );
+            }
+            return;
+        },
+        else => {
+            if (index.* < max_len) {
+                flat.*[index.*] = value;
+                index.* += 1;
+            }
+        },
+    }
+}
+fn getDepth(comptime Type: type) usize {
+    comptime var current_type = Type;
+    comptime var depth: usize = 0;
+
+    inline while (true) {
+        const _info = @typeInfo(current_type);
+        switch (_info) {
+            .array => |arr| {
+                depth += 1;
+                current_type = arr.child;
+            },
+            .pointer => |ptr| if (ptr.size == .slice) {
+                depth += 1;
+                current_type = ptr.child;
+            } else {
+                current_type = ptr.child;
+            },
+            else => break,
+        }
+    }
+    return depth;
+}
+fn resolveBaseType(comptime Type: type) type {
+    var current_type = Type;
+    inline while (true) {
+        const tag = @typeInfo(current_type);
+        switch (tag) {
+            .pointer => current_type = tag.pointer.child,
+            .array => current_type = tag.array.child,
+            .vector => current_type = tag.vector.child,
+            // .optional => t = tag.optional.child, // (future use)
+            else => break,
+        }
+    }
+    return current_type;
+}
+fn getShapeRecursive(allocator: std.mem.Allocator, value: anytype, max_depth: usize, level: usize, shape: []usize) !void {
+    if (level >= max_depth) return;
+
+    const val_type = @TypeOf(value);
+    const info = @typeInfo(val_type);
+
+    // Slice check
+    if (info != .pointer or info.pointer.size != .slice) return;
+
+    shape[level] = value.len;
+
+    if (value.len == 0) {
+        for (shape[level + 1 ..]) |*s| s.* = 0;
+        return;
+    }
+
+    try getShapeRecursive(allocator, value[0], max_depth, level + 1, shape);
+}
+
+pub fn getSliceShape(allocator: std.mem.Allocator, value: anytype, depth: usize) ![]usize {
+    const shape = try allocator.alloc(usize, depth);
+    for (shape) |*s| s.* = 0;
+
+    try getShapeRecursive(allocator, value, depth, 0, shape);
+
+    return shape;
+}
+// Old imp
+// fn getSliceShape(allocator: std.mem.Allocator, value: anytype, depth: usize) ![]usize {
+//     var shape = try allocator.alloc(usize, depth);
+//
+//     var current = value;
+//     var i: usize = 0;
+//     while (i < depth) : (i += 1) {
+//         shape[i] = current.len;
+//
+//         if (current.len == 0) {
+//             for (shape[i + 1 ..]) |*s| s.* = 0;
+//             break;
+//         }
+//
+//         const Elem = @TypeOf(current[0]);
+//         if (@typeInfo(Elem) != .pointer or @typeInfo(Elem).pointer.size != .slice) {
+//             break; // reached the base scalar (e.g., f64)
+//         }
+//
+//         current = current[0];
+//     }
+//
+//     return shape;
+// }
 // -------------------------------------------------
 // Concept Begins
 // -------------------------------------------------

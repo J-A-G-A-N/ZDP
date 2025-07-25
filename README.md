@@ -65,8 +65,7 @@ var data = try MyStruct.init(allocator, 1000);
 defer data.deinit();
 data.fillLorenz(0.001);
 
-const Writer = DataWriter(MyStruct);
-var writer = Writer.init(&data, allocator);
+const dw= DataWriter(MyStruct)..init(&data, allocator);
 try writer.write("out/MSE", .binary);
 ```
 
