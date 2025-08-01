@@ -120,6 +120,15 @@ pub fn DataWriter(comptime T: type) type {
                 .flat_res = std.mem.sliceAsBytes(flat_res),
             };
         }
+        fn parse(self: *Self) !void {
+            if (self.parse_done) return;
+            self.metas.clearRetainingCapacity();
+            inline for (fields) |field| {
+                if (field.type == std.mem.Allocator) continue;
+                if (try self.collectMeta(field)) |meta| try self.metas.append(meta);
+            }
+            self.parse_done = true;
+        }
         pub fn write(self: *@This(), comptime file_path: []const u8, comptime file_format: FileFormat) !void {
             const ext = switch (file_format) {
                 .text => ".txt",
@@ -129,15 +138,7 @@ pub fn DataWriter(comptime T: type) type {
             defer file.close();
             var bw = std.io.bufferedWriter(file.writer());
             const writer = bw.writer();
-            if (!self.parse_done) {
-                self.metas = std.ArrayList(FieldMeta).init(self.allocator);
-                inline for (fields) |field| {
-                    if (field.type == std.mem.Allocator) continue;
-                    if (try self.collectMeta(field)) |meta| try self.metas.append(meta);
-                }
-                self.parse_done = true;
-            }
-
+            if (!self.parse_done) try self.parse();
             switch (file_format) {
                 .text => try self.writeAllFieldAsText(writer),
                 .binary => try self.writeAllFieldAsBytes(writer),
@@ -214,7 +215,7 @@ fn get_flat_optimized(
     flatten_recursive_optimized(value, base_type, &flat, &index);
     return flat;
 }
-fn flatten_recursive_optimized(value: anytype, base_type: type, flat: *[]f64, index: *usize) void {
+fn flatten_recursive_optimized(value: anytype, base_type: type, flat: *[]base_type, index: *usize) void {
     const Type = @TypeOf(value);
     const _info = @typeInfo(Type);
     const max_len = flat.*.len;
